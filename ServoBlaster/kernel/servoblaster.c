@@ -110,8 +110,15 @@ static struct file_operations fops =
 // Define REV_1 or REV_2 depending on whcih rev of Pi you have.  Alternatively
 // just don't try to use P1-13.
 
+//Use cat /proc/cpuinfo to determine which revision of Pi you have
+//This particular Pi version being used for testing is a Revision 000f
+//which means it's a revision 2 board. 
+
+//Dynamic option should be added here so that it works with either revision
+
+
 //#define REV_1
-//#define REV_2
+#define REV_2
 
 // Map servo channels to GPIO pins
 static uint8_t servo2gpio[] = {
