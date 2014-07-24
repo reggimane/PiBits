@@ -52,6 +52,8 @@
 #include <mach/platform.h>
 #include <asm/uaccess.h>
 #include <mach/dma.h>
+#include "servoblaster.h"
+
 
 #define GPIO_LEN		0xb4
 #define DMA_LEN			0x24
@@ -146,7 +148,7 @@ static uint8_t servo2gpio[] = {
 //This table redirects the servo number index
 //to the servo2gpio table so that servo numbers
 //can be changed.
-static uint8_t index2servo[NUM_SERVOS];
+static uint8_t gpio2pin[NUM_SERVOS] = {7, 11, 12, 13, 15, 16, 18, 22};
 
 // Per-servo timeouts, so we can shut down a servo output after some period
 // without a new command - some people want this because the report servos
@@ -283,9 +285,6 @@ int init_module(void)
 		gpio_reg[GPCLR0] = 1 << gpio;
 		gpio_reg[fnreg] = (gpio_reg[fnreg] & ~(7 << fnshft)) | (1 << fnshft);
 
-		//Added to set the index table
-		index2servo[i] = i;
-
 	}
 #ifdef PWM0_ON_GPIO18
 	// Set pwm0 output on gpio18
@@ -369,6 +368,8 @@ int init_module(void)
 	udelay(10);
 	dma_reg[DMA_CS] = 0x10880001;	// go, mid priority, wait for outstanding writes
 
+	
+
 	return 0;
 }
 
@@ -384,12 +385,19 @@ void cleanup_module(void)
 		// Wait until we're not driving this servo
 		if (wait_for_servo(servo))
 			break;
+
+		printk(KERN_ALERT "Servoblaster cleanup passed the wait_for_servo call \n");
+
 		// Patch the control block so it stays low
 		ctl->cb[servo*4+0].dst = ((GPIO_BASE + GPCLR0*4) & 0x00ffffff) | 0x7e000000;
 		local_irq_enable();
 	}
 	// Wait 20ms to be sure it has finished it's cycle an all outputs are low
 	msleep(20);
+	//Setup a print just to see if it's hanging because of the msleep
+
+	printk(KERN_ALERT "Servoblaster cleanup passed the msleep section \n");
+
 	// Now we can kill everything
 	dma_reg[DMA_CS] = BCM2708_DMA_RESET;
 	pwm_reg[PWM_CTL] = 0;
@@ -429,9 +437,13 @@ static ssize_t dev_read(struct file *filp, char *buf, size_t count, loff_t *f_po
 			char *p = pdata->rd_data, *end = p + sizeof(pdata->rd_data);
 
 			// Get fresh data
+			//This is being modified so we can get more information off of a read
+			//This should now print a line that shows the servo number and which
+			//pin it points to
+			p += snprintf(p, end - p, "\n");
 			for (servo = 0; servo < NUM_SERVOS; ++servo) {
-				p += snprintf(p, end - p, "%i=%i\n", servo,
-					servo_pos[servo]);
+				p += snprintf(p, end - p, "%i=%i   on   P1-%i   GPIO-%i\n", servo,
+					      servo_pos[servo], gpio2pin[servo], servo2gpio[servo]);
 			}
 			pdata->rd_len = p - pdata->rd_data;
 		}
@@ -509,7 +521,7 @@ static ssize_t dev_write(struct file *filp,const char *user_buf,size_t count,lof
 				pdata->reject_writes = 1;
 				return -EINVAL;
 			}
-			res = set_servo(index2servo[servo], cnt);
+			res = set_servo(servo, cnt);
 			if (res < 0) {
 				pdata->reject_writes = 1;
 				return res;
