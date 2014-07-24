@@ -124,7 +124,7 @@ static struct file_operations fops =
 static uint8_t servo2gpio[] = {
 		4,	// P1-7
 		17,	// P1-11
-#ifdef PWM0_ON_GPIO18
+#ifdef PWM0_ON_GPIO18 //Revision 2 board don't have GPIO 1 as a control this line should be deleted
 		1,	// P1-5 (GPIO-18, P1-12 is currently PWM0, for debug)
 #else
 		18,	// P1-12
@@ -142,6 +142,11 @@ static uint8_t servo2gpio[] = {
 		25,	// P1-22
 };
 #define NUM_SERVOS	(sizeof(servo2gpio)/sizeof(servo2gpio[0]))
+
+//This table redirects the servo number index
+//to the servo2gpio table so that servo numbers
+//can be changed.
+static uint8_t index2servo[NUM_SERVOS];
 
 // Per-servo timeouts, so we can shut down a servo output after some period
 // without a new command - some people want this because the report servos
@@ -277,6 +282,10 @@ int init_module(void)
 		int fnshft = (gpio %10) * 3;
 		gpio_reg[GPCLR0] = 1 << gpio;
 		gpio_reg[fnreg] = (gpio_reg[fnreg] & ~(7 << fnshft)) | (1 << fnshft);
+
+		//Added to set the index table
+		index2servo[i] = i;
+
 	}
 #ifdef PWM0_ON_GPIO18
 	// Set pwm0 output on gpio18
@@ -500,7 +509,7 @@ static ssize_t dev_write(struct file *filp,const char *user_buf,size_t count,lof
 				pdata->reject_writes = 1;
 				return -EINVAL;
 			}
-			res = set_servo(servo, cnt);
+			res = set_servo(index2servo[servo], cnt);
 			if (res < 0) {
 				pdata->reject_writes = 1;
 				return res;
