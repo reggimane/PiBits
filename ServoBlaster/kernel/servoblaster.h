@@ -17,3 +17,5 @@ SDT = set idle_timeout
 //#define SERVOBLASTER_PSNT     _IOR(SERVOBLASTER_IOC_MAGIC, 8, int)
 
 #define SERVOBLASTER_IOC_MAXNR 3
+
+int parse_pins(void);

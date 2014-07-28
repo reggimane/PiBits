@@ -150,6 +150,9 @@ static uint8_t servo2gpio[] = {
 //can be changed.
 static uint8_t gpio2pin[NUM_SERVOS] = {7, 11, 12, 13, 15, 16, 18, 22};
 
+static uint8_t index2servo[17] = {0};
+static uint8_t numservos;
+
 // Per-servo timeouts, so we can shut down a servo output after some period
 // without a new command - some people want this because the report servos
 // overheating after a time.
@@ -194,11 +197,98 @@ static int my_major;
 static int cycle_ticks = 2000;
 static int tick_scale = 6;
 static int idle_timeout = 0;
+#define BUFF_LEN 100
 
+//static char mypins[BUFF_LEN] = "7,11,12,13,15,16,18,22";
+static char *mypins = "7,11,12,13,15,16,18,22";
 // This records the written count values so we can display them on a read()
 // call.  Cannot derive data directly from DMA control blocks as current
 // algorithm has a special case for a count of zero.
 static int servo_pos[NUM_SERVOS] = { 0 };
+
+int parse_pins(void)
+{
+  int count = 1;
+  int i = 0;
+  char * ptr = mypins;
+  char * token;
+  uint8_t casttoken;
+  int index = 0;
+
+  //First Step in parsing the input
+  //Check to make sure there are no illegal characters in the line
+  
+  //  for(i = 0; i < BUFF_LEN; i++)
+  while(*ptr != '\0')
+    {
+      if(*ptr == 0)
+	break;
+      else if(((*ptr < 48) && (*ptr != 44)) || (*ptr > 57))
+	{
+	  printk(KERN_ALERT "ServoBlaster: Bad Parameters for pins [%c]. Going to Default Settings \n", *ptr);
+	  //	  printk(KERN_ALERT "ServoBlaster: mypins[%d] = %c \n", i, ptr);
+	  return 0;
+	}
+      else if(*ptr == 44)
+	{
+	  // printk(KERN_ALERT "ServoBlaster: mypins = (%c). Incrementing count \n", *ptr);
+	  count++;
+	}
+      ptr++;
+    }
+
+  if(count > 17)
+    {
+      printk(KERN_ALERT "ServoBlaster: Bad Parameters for pins [%s]. %d pins requested. 17 available. Going to Default Settings \n", mypins, count);
+      return 0;
+    }
+  
+  //We'll pass over the character array one more time to extract the relevent pin numbers
+  //and test their validity
+
+  //  printk(KERN_ALERT "ServoBlaster: count = %d \n", count);
+
+
+  //  index2servo = kmalloc(sizeof(uint8_t)*count, GFP_KERNEL);
+  
+
+  token = strsep(&mypins, ",");
+  while(token != NULL)
+    {
+      token = strsep(&mypins, ",");
+
+      printk(KERN_ALERT "ServoBlaster: token = [%s] \n", token);
+      
+      
+      if(token != NULL)
+	{
+	  
+	  casttoken = (uint8_t)simple_strtoul(token, NULL, 10);
+	  printk(KERN_ALERT "ServoBlaster: casttoken = [%d] \n", casttoken);
+	  
+	}
+      
+      for(i=0; i < NUM_SERVOS; i++)
+	{
+	  if(gpio2pin[i] == casttoken)
+	    {
+	      //Set the Index table to point to the index of an actual
+	      //GPIO channel via the servo2gpio table
+	      index2servo[index] = i;
+	      index++;
+	      printk(KERN_ALERT "Servoblaster: index2servo[%d] = %d \n", index, i); 
+	    }
+	}
+      
+    }
+
+  numservos = index;
+
+  printk(KERN_ALERT "Servoblaster: numservos = %d \n", numservos); 
+
+  //Success
+  return 1;
+}
 
 static void servo_timeout(unsigned long servo)
 {
@@ -235,6 +325,10 @@ static int wait_for_servo(int servo)
 int init_module(void)
 {
 	int res, i, s;
+
+	printk(KERN_ALERT "ServoBlaster: mypins = [%s] \n", mypins);
+
+	parse_pins();
 	
 	res = alloc_chrdev_region(&devno, 0, 1, "servoblaster");
 	if (res < 0) {
@@ -263,6 +357,9 @@ int init_module(void)
 	ctldatabase = __get_free_pages(GFP_KERNEL, 0);
 	printk(KERN_INFO "ServoBlaster: Control page is at 0x%lx, cycle_ticks %d, tick_scale %d, idle_timeout %d\n",
 			ctldatabase, cycle_ticks, tick_scale, idle_timeout);
+
+	//	printk(KERN_ALERT "ServoBlaster: mypins = [%s] \n", mypins);
+
 	if (ctldatabase == 0) {
 		printk(KERN_WARNING "ServoBlaster: alloc_pages failed\n");
 		cdev_del(&my_cdev);
@@ -296,6 +393,9 @@ int init_module(void)
 	for (s = 0; s < NUM_SERVOS; s++) {
 		int i = s*4;
 		// Set gpio high
+		
+		//ctl->gpiodata[s] = 1 << servo2gpio[index2gpio[s]];
+
 		ctl->gpiodata[s] = 1 << servo2gpio[s];
 		ctl->cb[i].info   = BCM2708_DMA_NO_WIDE_BURSTS | BCM2708_DMA_WAIT_RESP;
 		ctl->cb[i].src    = (uint32_t)(&ctl->gpiodata[s]) & 0x7fffffff;
@@ -440,7 +540,6 @@ static ssize_t dev_read(struct file *filp, char *buf, size_t count, loff_t *f_po
 			//This is being modified so we can get more information off of a read
 			//This should now print a line that shows the servo number and which
 			//pin it points to
-			p += snprintf(p, end - p, "\n");
 			for (servo = 0; servo < NUM_SERVOS; ++servo) {
 				p += snprintf(p, end - p, "%i=%i   on   P1-%i   GPIO-%i\n", servo,
 					      servo_pos[servo], gpio2pin[servo], servo2gpio[servo]);
@@ -567,6 +666,7 @@ static long dev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	return -EINVAL;
 }
 
+
 MODULE_DESCRIPTION("ServoBlaster, Multiple Servo Driver for the RaspberryPi");
 MODULE_AUTHOR("Richard Hirst <richardghirst@gmail.com>");
 MODULE_LICENSE("GPL v2");
@@ -580,3 +680,5 @@ MODULE_PARM_DESC(tick_scale, "scale the tick length, 6 should be 10us");
 module_param(idle_timeout, int, 0);
 MODULE_PARM_DESC(idle_timeout, "Idle timeout, after which we turn off a servo output (ms)");
 
+//module_param_string(pins, mypins, BUFF_LEN, 0);
+module_param(mypins, charp, 0);
