@@ -116,41 +116,19 @@ static struct file_operations fops =
 //This particular Pi version being used for testing is a Revision 000f
 //which means it's a revision 2 board. 
 
-//Dynamic option should be added here so that it works with either revision
+#define NUM_SERVOS 17
 
+//Rev 2 boards
+static uint8_t servo2gpio[NUM_SERVOS] = {2, 3, 4,  7,  8,  9, 10, 11, 14, 15, 17, 18, 22, 23, 24, 25, 27};
+static uint8_t gpio2pin[NUM_SERVOS]   = {3, 5, 7, 26, 24, 21, 19, 23,  8, 10, 11, 12, 15, 16, 18, 22, 13};
 
-//#define REV_1
-#define REV_2
+//Rev 1 boards
+/*
+static uint8_t servo2gpio[17] = {0, 1, 4,  7,  8,  9, 10, 11, 14, 15, 17, 18, 22, 23, 24, 25, 21};
+static uint8_t gpio2pin[17]   = {3, 5, 7, 26, 24, 21, 19, 23,  8, 10, 11, 12, 15, 16, 18, 22, 13};
+*/
 
-// Map servo channels to GPIO pins
-static uint8_t servo2gpio[] = {
-  4,	// P1-7
-  17,	// P1-11
-#ifdef PWM0_ON_GPIO18 //Revision 2 board don't have GPIO 1 as a control this line should be deleted
-  1,	// P1-5 (GPIO-18, P1-12 is currently PWM0, for debug)
-#else
-  18,	// P1-12
-#endif
-#if defined(REV_1)
-  21,	// P1-13
-#elif defined(REV_2)
-  27,	// P1-13
-#else
-#error "You must define REV_1 or REV_2"
-#endif
-  22,	// P1-15
-  23,	// P1-16
-  24,	// P1-18
-  25,	// P1-22
-};
-#define NUM_SERVOS	(sizeof(servo2gpio)/sizeof(servo2gpio[0]))
-
-//This table redirects the servo number index
-//to the servo2gpio table so that servo numbers
-//can be changed.
-static uint8_t gpio2pin[NUM_SERVOS] = {7, 11, 12, 13, 15, 16, 18, 22};
-
-static uint8_t index2servo[17] = {0};
+static uint8_t index2servo[NUM_SERVOS] = {0};
 static uint8_t numservos;
 
 // Per-servo timeouts, so we can shut down a servo output after some period
@@ -400,11 +378,13 @@ int init_module(void)
     gpio_reg[fnreg] = (gpio_reg[fnreg] & ~(7 << fnshft)) | (1 << fnshft);
 
   }
+  /*
 #ifdef PWM0_ON_GPIO18
   // Set pwm0 output on gpio18
   gpio_reg[GPCLR0] = 1 << 18;
   gpio_reg[GPFSEL1] = (gpio_reg[GPFSEL1] & ~(7 << 8*3)) | ( 2 << 8*3);
 #endif
+  */
 
   // Build the DMA CB chain
   for (s = 0; s < numservos; s++) {
@@ -442,12 +422,13 @@ int init_module(void)
     ctl->cb[i].info   = BCM2708_DMA_NO_WIDE_BURSTS | BCM2708_DMA_WAIT_RESP | BCM2708_DMA_D_DREQ | BCM2708_DMA_PER_MAP(5);
     ctl->cb[i].src    = (uint32_t)(&ctl->pwmdata) & 0x7fffffff;
     ctl->cb[i].dst    = ((PWM_BASE + PWM_FIFO*4) & 0x00ffffff) | 0x7e000000;
-    ctl->cb[i].length = sizeof(uint32_t) * (cycle_ticks / 8 - 1);
+    ctl->cb[i].length = sizeof(uint32_t) * (cycle_ticks / numservos - 1);
     ctl->cb[i].stride = 0;
     ctl->cb[i].next = (uint32_t)(ctl->cb + i + 1) & 0x7fffffff;
   }
   // Point last cb back to first one so it loops continuously
-  ctl->cb[NUM_SERVOS*4-1].next = (uint32_t)(ctl->cb) & 0x7fffffff;
+  //  ctl->cb[NUM_SERVOS*4-1].next = (uint32_t)(ctl->cb) & 0x7fffffff;
+  ctl->cb[numservos*4-1].next = (uint32_t)(ctl->cb) & 0x7fffffff;
 
   // Initialise PWM - these delays may not all be necessary, but at least
   // I seem to be able to switch between PWM audio and servoblaster
@@ -557,7 +538,7 @@ static ssize_t dev_read(struct file *filp, char *buf, size_t count, loff_t *f_po
       //This should now print a line that shows the servo number and which
       //pin it points to
       for (servo = 0; servo < numservos; ++servo) {
-	p += snprintf(p, end - p, "%2i=%2i   on   P1-%2i   GPIO-%2i\n", servo,
+	p += snprintf(p, end - p, "%2i=%3i   on   P1-%2i   GPIO-%2i\n", servo,
 		      servo_pos[servo], gpio2pin[index2servo[servo]], servo2gpio[index2servo[servo]]);
       }
       pdata->rd_len = p - pdata->rd_data;
@@ -582,7 +563,7 @@ static int set_servo(int servo, int cnt)
     printk(KERN_WARNING "ServoBlaster: Bad servo number %d\n", servo);
     return -EINVAL;
   }
-  if (cnt < 0 || cnt > cycle_ticks / 8 - 1) {
+  if (cnt < 0 || cnt > cycle_ticks / numservos - 1) {
     printk(KERN_WARNING "ServoBlaster: Bad value %d\n", cnt);
     return -EINVAL;
   }
@@ -600,7 +581,7 @@ static int set_servo(int servo, int cnt)
   } else {
     ctl->cb[servo*4+0].dst = ((GPIO_BASE + GPSET0*4) & 0x00ffffff) | 0x7e000000;
     ctl->cb[servo*4+1].length = cnt * sizeof(uint32_t);
-    ctl->cb[servo*4+3].length = (cycle_ticks / 8 - cnt) * sizeof(uint32_t);
+    ctl->cb[servo*4+3].length = (cycle_ticks / numservos - cnt) * sizeof(uint32_t);
   }
   servo_pos[servo] = cnt;	// Record data for use by dev_read
   local_irq_enable();
