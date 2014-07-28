@@ -197,7 +197,6 @@ static int my_major;
 static int cycle_ticks = 2000;
 static int tick_scale = 6;
 static int idle_timeout = 0;
-#define BUFF_LEN 100
 
 //static char mypins[BUFF_LEN] = "7,11,12,13,15,16,18,22";
 static char *mypins = "7,11,12,13,15,16,18,22";
@@ -331,10 +330,20 @@ static int wait_for_servo(int servo)
 int init_module(void)
 {
   int res, i, s;
-
+  int j = 0;
   printk(KERN_ALERT "ServoBlaster: mypins = [%s] \n", mypins);
 
-  parse_pins();
+  if(parse_pins() == 0)
+    {
+      //Module parameter input failed
+      //Rever the servo table to default
+      numservos = 8;
+      for(j = 0; j < numservos; j++)
+	{
+	  index2servo[j] = j;
+	}
+      printk(KERN_ALERT "ServoBlaster: Bad input for mypins module parameter. Loading default servo list \n"); 
+    }
 	
   res = alloc_chrdev_region(&devno, 0, 1, "servoblaster");
   if (res < 0) {
