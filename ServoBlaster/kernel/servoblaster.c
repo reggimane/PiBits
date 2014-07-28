@@ -165,7 +165,8 @@ struct private_data
   // Stores the return string for a read of /dev/servoblaster
   // Allowing 10 chars per line.
   int rd_len;
-  char rd_data[NUM_SERVOS * 10];
+  //Modified this for printing more data on a read operation
+  char rd_data[NUM_SERVOS * 50];
 
   // Stores partial command strings between calls to write(), in case
   // someone uses multiple write() calls to issue a single command.
@@ -390,8 +391,9 @@ int init_module(void)
   memset(ctl, 0, sizeof(*ctl));
 
   // Set all servo control pins to be outputs
-  for (i = 0; i < NUM_SERVOS; i++) {
-    int gpio = servo2gpio[i];
+  for (i = 0; i < numservos; i++) {
+    //    int gpio = servo2gpio[i];
+    int gpio = servo2gpio[index2servo[i]];
     int fnreg = gpio/10 + GPFSEL0;
     int fnshft = (gpio %10) * 3;
     gpio_reg[GPCLR0] = 1 << gpio;
@@ -405,13 +407,12 @@ int init_module(void)
 #endif
 
   // Build the DMA CB chain
-  for (s = 0; s < NUM_SERVOS; s++) {
+  for (s = 0; s < numservos; s++) {
     int i = s*4;
     // Set gpio high
 		
-    //ctl->gpiodata[s] = 1 << servo2gpio[index2gpio[s]];
-
-    ctl->gpiodata[s] = 1 << servo2gpio[s];
+    ctl->gpiodata[s] = 1 << servo2gpio[index2servo[s]];
+    //    ctl->gpiodata[s] = 1 << servo2gpio[s];
     ctl->cb[i].info   = BCM2708_DMA_NO_WIDE_BURSTS | BCM2708_DMA_WAIT_RESP;
     ctl->cb[i].src    = (uint32_t)(&ctl->gpiodata[s]) & 0x7fffffff;
     // We clear the GPIO here initially, so outputs go to 0 on startup
@@ -555,9 +556,9 @@ static ssize_t dev_read(struct file *filp, char *buf, size_t count, loff_t *f_po
       //This is being modified so we can get more information off of a read
       //This should now print a line that shows the servo number and which
       //pin it points to
-      for (servo = 0; servo < NUM_SERVOS; ++servo) {
-	p += snprintf(p, end - p, "%i=%i   on   P1-%i   GPIO-%i\n", servo,
-		      servo_pos[servo], gpio2pin[servo], servo2gpio[servo]);
+      for (servo = 0; servo < numservos; ++servo) {
+	p += snprintf(p, end - p, "%2i=%2i   on   P1-%2i   GPIO-%2i\n", servo,
+		      servo_pos[servo], gpio2pin[index2servo[servo]], servo2gpio[index2servo[servo]]);
       }
       pdata->rd_len = p - pdata->rd_data;
     }
@@ -577,7 +578,7 @@ static ssize_t dev_read(struct file *filp, char *buf, size_t count, loff_t *f_po
 
 static int set_servo(int servo, int cnt) 
 {
-  if (servo < 0 || servo >= NUM_SERVOS) {
+  if (servo < 0 || servo >= numservos) {
     printk(KERN_WARNING "ServoBlaster: Bad servo number %d\n", servo);
     return -EINVAL;
   }
