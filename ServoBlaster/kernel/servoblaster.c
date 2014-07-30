@@ -16,27 +16,6 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-/*
- * If you want the device node created automatically create these two
- * files, and make /lib/udev/servoblaster executable (chmod +x):
- *
- * ============= /etc/udev/rules.d/20-servoblaster.rules =============
- * SUBSYSTEM=="module", DEVPATH=="/module/servoblaster", RUN+="/lib/udev/servoblaster"
- * ===================================================================
- *
- * ===================== /lib/udev/servoblaster ======================
- * #!/bin/bash
- *
- * if [ "$ACTION" = "remove" ]; then
- *         rm -f /dev/servoblaster
- * elif [ "$ACTION" = "add" ]; then
- *          major=$( sed -n 's/ servoblaster//p' /proc/devices )
- *        [ "$major" ] && mknod -m 0666 /dev/servoblaster c $major 0
- * fi
- *
- * exit 0
- * ===================================================================
- */
 
 #include <linux/module.h>
 #include <linux/string.h>
@@ -118,15 +97,17 @@ static struct file_operations fops =
 
 #define NUM_SERVOS 17
 
+static uint8_t *servo2gpio;
+static uint8_t *gpio2pin;
+
 //Rev 2 boards
-static uint8_t servo2gpio[NUM_SERVOS] = {2, 3, 4,  7,  8,  9, 10, 11, 14, 15, 17, 18, 22, 23, 24, 25, 27};
-static uint8_t gpio2pin[NUM_SERVOS]   = {3, 5, 7, 26, 24, 21, 19, 23,  8, 10, 11, 12, 15, 16, 18, 22, 13};
+static uint8_t r1_servo2gpio[NUM_SERVOS] = {2, 3, 4,  7,  8,  9, 10, 11, 14, 15, 17, 18, 22, 23, 24, 25, 27};
+static uint8_t r1_gpio2pin[NUM_SERVOS]   = {3, 5, 7, 26, 24, 21, 19, 23,  8, 10, 11, 12, 15, 16, 18, 22, 13};
 
 //Rev 1 boards
-/*
-static uint8_t servo2gpio[17] = {0, 1, 4,  7,  8,  9, 10, 11, 14, 15, 17, 18, 22, 23, 24, 25, 21};
-static uint8_t gpio2pin[17]   = {3, 5, 7, 26, 24, 21, 19, 23,  8, 10, 11, 12, 15, 16, 18, 22, 13};
-*/
+static uint8_t r2_servo2gpio[NUM_SERVOS] = {0, 1, 4,  7,  8,  9, 10, 11, 14, 15, 17, 18, 22, 23, 24, 25, 21};
+static uint8_t r2_gpio2pin[NUM_SERVOS]   = {3, 5, 7, 26, 24, 21, 19, 23,  8, 10, 11, 12, 15, 16, 18, 22, 13};
+
 
 static uint8_t index2servo[NUM_SERVOS] = {0};
 static uint8_t numservos;
@@ -176,6 +157,8 @@ static int my_major;
 static int cycle_ticks = 2000;
 static int tick_scale = 6;
 static int idle_timeout = 0;
+//Default to revision 2
+static int rev_no = 2;
 
 //static char mypins[BUFF_LEN] = "7,11,12,13,15,16,18,22";
 static char *mypins = "7,11,12,13,15,16,18,22";
@@ -311,6 +294,14 @@ int init_module(void)
   int res, i, s;
   int j = 0;
   printk(KERN_ALERT "ServoBlaster: mypins = [%s] \n", mypins);
+  if(rev_no == 2)
+    {
+      servo2gpio = r2_servo2gpio; 
+      gpio2pin = r2_gpio2pin;
+    }
+  else
+    {
+    }
 
   if(parse_pins() == 0)
     {
@@ -660,6 +651,23 @@ static int dev_close(struct inode *inod,struct file *fil)
 
 static long dev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
+
+  switch(cmd)
+    {
+    case SERVOBLASTER_SCT:
+      __get_user(cycle_ticks, (int __user *)arg);
+      break;
+
+    case SERVOBLASTER_STS:
+      __get_user(tick_scale, (int __user *)arg);
+      pwm_reg[PWM_RNG1] = tick_scale;
+      break;
+
+    default:
+      return -ENOTTY;
+
+    }
+  
   return -EINVAL;
 }
 
@@ -679,3 +687,7 @@ MODULE_PARM_DESC(idle_timeout, "Idle timeout, after which we turn off a servo ou
 
 //module_param_string(pins, mypins, BUFF_LEN, 0);
 module_param(mypins, charp, 0);
+MODULE_PARM_DESC(mypins, "mypins, the pins that you would like to control vio GPIO output");
+
+module_param(rev_no, int, 0);
+MODULE_PARM_DESC(mypins, "rev_no, the revision number of the rasperry Pi board");

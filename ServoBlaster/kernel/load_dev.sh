@@ -15,7 +15,7 @@ then
     major=`grep -P "servoblaster" /proc/devices | grep -oP "\d{3}"`
     echo $major
     mknod -m $mode /dev/servoblaster c $major 0
-    chown servob:servob /dev/servoblaster
+    chown $USER:$USER /dev/servoblaster
 
 elif [ "$1" == 'unload' ] 
 then
